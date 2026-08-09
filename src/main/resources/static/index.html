@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Shandar POS Terminal</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #e9ecef; margin: 0; }
+        .pos-wrapper { display: flex; gap: 20px; max-width: 1200px; margin: 0 auto; height: 85vh;}
+        .panel { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+
+        /* Menu Grid Styling */
+        .menu-panel { flex: 2; overflow-y: auto; }
+        .menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+        .menu-btn { padding: 20px 10px; background-color: #0d6efd; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; transition: 0.2s; }
+        .menu-btn:hover { background-color: #0b5ed7; transform: scale(0.98); }
+
+        /* Ticket Styling */
+        .ticket-panel { flex: 1; background-color: #f8f9fa; border-left: 5px solid #343a40; }
+        .ticket-item { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px dashed #ccc; font-size: 16px;}
+        .action-btn { padding: 18px; background-color: #198754; color: white; border: none; border-radius: 8px; cursor: pointer; width: 100%; font-size: 18px; font-weight: bold; margin-top: auto; transition: 0.2s;}
+        .action-btn:hover { background-color: #157347; }
+        input[type="number"] { padding: 12px; font-size: 16px; width: 90%; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div class="pos-wrapper">
+    <!-- Left Side: Menu Grid -->
+    <div class="panel menu-panel">
+        <h2 style="margin-top:0;">Menu</h2>
+        <div id="menuGrid" class="menu-grid">
+            <!-- Food buttons will load here automatically -->
+        </div>
+    </div>
+
+    <!-- Right Side: The Order Ticket -->
+    <div class="panel ticket-panel">
+        <h2 style="margin-top:0;">Current Order</h2>
+        <input type="number" id="tableNumber" placeholder="Enter Table No.">
+
+        <div id="ticketList" style="flex-grow: 1; overflow-y: auto; margin-bottom: 20px;">
+            <p style="color: #6c757d; text-align: center; margin-top: 50px;">Ticket is empty</p>
+        </div>
+
+        <h2 style="text-align: right; border-top: 2px solid #333; padding-top: 10px;">Total: रू <span id="cartTotal">0.00</span></h2>
+        <button class="action-btn" onclick="submitOrder()">Print KOT & Send to Kitchen</button>
+    </div>
+</div>
+
+<script>
+    let currentTicket = [];
+
+    // 1. Fetch the menu from the database and create buttons
+    function loadMenu() {
+        fetch('/api/menu')
+            .then(response => response.json())
+            .then(data => {
+                const grid = document.getElementById('menuGrid');
+                grid.innerHTML = '';
+                data.forEach(item => {
+                    let btn = document.createElement('button');
+                    btn.className = 'menu-btn';
+                    btn.innerHTML = `${item.name}<br><small>रू ${item.price}</small>`;
+                    // When clicked, add this item to the ticket
+                    btn.onclick = () => addToTicket(item);
+                    grid.appendChild(btn);
+                });
+            });
+    }
+
+    // 2. Add item to the current ticket (or increase quantity)
+    function addToTicket(item) {
+        let existingItem = currentTicket.find(i => i.id === item.id);
+        if (existingItem) {
+            existingItem.qty += 1;
+        } else {
+            currentTicket.push({ id: item.id, name: item.name, price: item.price, qty: 1 });
+        }
+        updateTicketUI();
+    }
+
+    // 3. Update the visual ticket receipt on the right side
+    function updateTicketUI() {
+        const list = document.getElementById('ticketList');
+        list.innerHTML = '';
+        let total = 0;
+
+        currentTicket.forEach(item => {
+            let div = document.createElement('div');
+            div.className = 'ticket-item';
+            div.innerHTML = `<span><b>${item.qty}x</b> ${item.name}</span> <span>रू ${(item.price * item.qty).toFixed(2)}</span>`;
+            list.appendChild(div);
+            total += (item.price * item.qty);
+        });
+
+        document.getElementById('cartTotal').innerText = total.toFixed(2);
+    }
+
+    // 4. Submit the order (We will connect this to Java next)
+    function submitOrder() {
+        let table = document.getElementById('tableNumber').value;
+        if (!table) { alert("Please enter a table number first!"); return; }
+        if (currentTicket.length === 0) { alert("Please add items to the ticket!"); return; }
+
+        // Package the data exactly how Java expects it
+        const orderData = {
+            tableNumber: parseInt(table),
+            items: currentTicket // This array already has 'id' and 'qty'
+        };
+
+        // Send it to the Java backend
+        fetch('/api/order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(orderData)
+        })
+            .then(response => response.text())
+            .then(message => {
+                alert(message); // Shows the success message from Java
+                // Clear the UI for the next customer
+                currentTicket = [];
+                document.getElementById('tableNumber').value = '';
+                updateTicketUI();
+            })
+            .catch(error => console.error('Error:', error));
+    }
+
+    // Run this when the page opens
+    window.onload = loadMenu;
+</script>
+
+</body>
+</html>
