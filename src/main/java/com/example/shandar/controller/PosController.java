@@ -69,4 +69,11 @@ public class PosController {
 
         return "Order successfully saved to database for Table " + request.getTableNumber();
     }
+
+    // NEW: Endpoint for the Manager Dashboard to get all sales data
+    @GetMapping("/sales")
+    public List<OrderItem> getSalesData() {
+        // This grabs every single item ever ordered from the database
+        return orderItemRepository.findAll();
+    }
 }

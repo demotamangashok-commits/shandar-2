@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Manager Sales Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f7f6; margin: 0; }
+        .dashboard-container { max-width: 1000px; margin: 0 auto; }
+
+        /* UPDATED: Flexbox layout to push logo left and text right */
+        .header-card {
+            background: #198754;
+            color: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        /* UPDATED: Removed bottom margin since it's now side-by-side */
+        .brand-logo {
+            height: 130px;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            border: 3px solid white;
+        }
+
+        /* NEW: Container for the revenue text to align it to the right */
+        .header-text {
+            text-align: right;
+        }
+        .header-text h2 { margin-top: 0; margin-bottom: 5px; opacity: 0.9; }
+        .header-text h1 { margin: 0; font-size: 48px; }
+
+        .controls-card { background: white; padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .controls-card input[type="date"], select { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+
+        .btn { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; transition: 0.2s; }
+        .btn-primary { background-color: #0d6efd; }
+        .btn-primary:hover { background-color: #0b5ed7; }
+        .btn-secondary { background-color: #6c757d; }
+        .btn-secondary:hover { background-color: #5c636a; }
+        .btn-success { background-color: #28a745; margin-left: auto; }
+        .btn-success:hover { background-color: #218838; }
+        .btn-danger { background-color: #dc3545; }
+        .btn-danger:hover { background-color: #c82333; }
+
+        table { width: 100%; background: white; border-collapse: collapse; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 8px rgba(0,0,0,0.1); margin-bottom: 40px; }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #343a40; color: white; }
+        tr:hover { background-color: #f8f9fa; }
+        tfoot td { background-color: #e9ecef; border-top: 2px solid #343a40; font-size: 18px; }
+
+        .nav-link { display: inline-block; margin-bottom: 20px; text-decoration: none; color: #0d6efd; font-weight: bold; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+<div class="dashboard-container">
+    <a href="/" class="nav-link" data-html2canvas-ignore>← Back to POS Terminal</a>
+
+    <div class="controls-card" data-html2canvas-ignore>
+        <label><b>Start Date:</b></label>
+        <input type="date" id="startDate">
+
+        <label><b>End Date:</b></label>
+        <input type="date" id="endDate">
+
+        <button class="btn btn-primary" onclick="applyFilter()">Filter</button>
+        <button class="btn btn-secondary" onclick="clearFilter()">Clear</button>
+
+        <label style="margin-left: 10px;"><b>Report Type:</b></label>
+        <select id="reportView" onchange="renderTable()" style="background-color: #ffc107; font-weight: bold; cursor: pointer;">
+            <option value="detailed">📋 Detailed Item History</option>
+            <option value="order">🛒 Order Summaries</option>
+            <option value="daily">📅 Daily Revenue Report</option>
+        </select>
+
+        <button class="btn btn-success" onclick="exportToExcel()">📥 Excel</button>
+        <button class="btn btn-danger" onclick="exportToPDF()">📄 PDF</button>
+    </div>
+
+    <div id="printableReport">
+        <!-- UPDATED: HTML structure separates the logo from the text block -->
+        <div class="header-card">
+            <img src="/logo.jpg" alt="Shandar Mo:Mo:" class="brand-logo">
+            <div class="header-text">
+                <h2>Filtered Revenue</h2>
+                <h1>रू <span id="totalRevenue">0.00</span></h1>
+            </div>
+        </div>
+
+        <h2 id="tableTitle">Detailed Order History</h2>
+        <table>
+            <thead id="tableHeaders"></thead>
+            <tbody id="salesTableBody"></tbody>
+            <tfoot id="tableFooter"></tfoot>
+        </table>
+    </div>
+</div>
+
+<script>
+    let allSalesData = [];
+    let currentFilteredData = [];
+
+    function loadSalesData() {
+        fetch('/api/sales')
+            .then(response => response.json())
+            .then(items => {
+                allSalesData = items;
+                allSalesData.sort((a, b) => b.customerOrder.id - a.customerOrder.id);
+                currentFilteredData = allSalesData;
+                renderTable();
+            })
+            .catch(error => console.error("Error loading sales:", error));
+    }
+
+    function formatDateTime(isoString) {
+        if (!isoString) return 'N/A';
+        return isoString.replace('T', ' ').substring(0, 16);
+    }
+
+    function renderTable() {
+        const view = document.getElementById('reportView').value;
+        const thead = document.getElementById('tableHeaders');
+        const tbody = document.getElementById('salesTableBody');
+        const tfoot = document.getElementById('tableFooter');
+
+        tbody.innerHTML = '';
+        tfoot.innerHTML = '';
+        let grandTotal = 0;
+        let colspanForTotal = 0;
+
+        if (view === 'detailed') {
+            colspanForTotal = 6;
+            document.getElementById('tableTitle').innerText = "Detailed Item History";
+            thead.innerHTML = `<tr><th>Order ID</th><th>Date & Time</th><th>Table No.</th><th>Item Sold</th><th>Qty</th><th>Unit Price</th><th>Subtotal</th></tr>`;
+
+            currentFilteredData.forEach(item => {
+                const itemTotal = item.quantity * item.menuItem.price;
+                grandTotal += itemTotal;
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><strong>#${item.customerOrder.id}</strong></td>
+                    <td>${formatDateTime(item.customerOrder.createdAt)}</td>
+                    <td>Table ${item.customerOrder.tableNumber}</td>
+                    <td>${item.menuItem.name}</td>
+                    <td>${item.quantity}</td>
+                    <td>रू ${item.menuItem.price.toFixed(2)}</td>
+                    <td><strong>रू ${itemTotal.toFixed(2)}</strong></td>
+                `;
+                tbody.appendChild(row);
+            });
+
+        } else if (view === 'order') {
+            colspanForTotal = 3;
+            document.getElementById('tableTitle').innerText = "Total Order Summaries";
+            thead.innerHTML = `<tr><th>Order ID</th><th>Date & Time</th><th>Table No.</th><th>Order Total</th></tr>`;
+
+            const groupedOrders = {};
+            currentFilteredData.forEach(item => {
+                const orderId = item.customerOrder.id;
+                if (!groupedOrders[orderId]) {
+                    groupedOrders[orderId] = {
+                        id: orderId,
+                        datetime: formatDateTime(item.customerOrder.createdAt),
+                        table: item.customerOrder.tableNumber,
+                        total: 0
+                    };
+                }
+                groupedOrders[orderId].total += (item.quantity * item.menuItem.price);
+            });
+
+            Object.values(groupedOrders).forEach(order => {
+                grandTotal += order.total;
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><strong>#${order.id}</strong></td>
+                    <td>${order.datetime}</td>
+                    <td>Table ${order.table}</td>
+                    <td><strong>रू ${order.total.toFixed(2)}</strong></td>
+                `;
+                tbody.appendChild(row);
+            });
+
+        } else if (view === 'daily') {
+            colspanForTotal = 3;
+            document.getElementById('tableTitle').innerText = "Daily Revenue Report";
+            thead.innerHTML = `<tr><th>Date</th><th>Total Orders Taken</th><th>Total Items Sold</th><th>Daily Revenue</th></tr>`;
+
+            const groupedByDate = {};
+            currentFilteredData.forEach(item => {
+                const dateOnly = item.customerOrder.createdAt ? item.customerOrder.createdAt.split('T')[0] : 'N/A';
+                if (!groupedByDate[dateOnly]) {
+                    groupedByDate[dateOnly] = {
+                        date: dateOnly,
+                        totalRevenue: 0,
+                        itemsSold: 0,
+                        uniqueOrders: new Set()
+                    };
+                }
+                groupedByDate[dateOnly].totalRevenue += (item.quantity * item.menuItem.price);
+                groupedByDate[dateOnly].itemsSold += item.quantity;
+                groupedByDate[dateOnly].uniqueOrders.add(item.customerOrder.id);
+            });
+
+            Object.values(groupedByDate).forEach(day => {
+                grandTotal += day.totalRevenue;
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><strong>${day.date}</strong></td>
+                    <td>${day.uniqueOrders.size} Orders</td>
+                    <td>${day.itemsSold} Items</td>
+                    <td><strong>रू ${day.totalRevenue.toFixed(2)}</strong></td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        document.getElementById('totalRevenue').innerText = grandTotal.toFixed(2);
+
+        if(currentFilteredData.length > 0) {
+            tfoot.innerHTML = `
+                <tr>
+                    <td colspan="${colspanForTotal}" style="text-align: right;"><strong>GRAND TOTAL:</strong></td>
+                    <td><strong>रू ${grandTotal.toFixed(2)}</strong></td>
+                </tr>
+            `;
+        }
+    }
+
+    function applyFilter() {
+        const start = document.getElementById('startDate').value;
+        const end = document.getElementById('endDate').value;
+        if (!start && !end) return;
+
+        currentFilteredData = allSalesData.filter(item => {
+            if (!item.customerOrder.createdAt) return false;
+            const orderDate = item.customerOrder.createdAt.split('T')[0];
+
+            if (start && end) { return orderDate >= start && orderDate <= end; }
+            if (start) { return orderDate >= start; }
+            if (end) { return orderDate <= end; }
+        });
+        renderTable();
+    }
+
+    function clearFilter() {
+        document.getElementById('startDate').value = '';
+        document.getElementById('endDate').value = '';
+        currentFilteredData = allSalesData;
+        renderTable();
+    }
+
+    function exportToPDF() {
+        const element = document.getElementById('printableReport');
+        const view = document.getElementById('reportView').value;
+
+        let filename = "Shandar_Sales_Report.pdf";
+        if (view === 'detailed') filename = "Shandar_Detailed_Report.pdf";
+        if (view === 'order') filename = "Shandar_Order_Summary.pdf";
+        if (view === 'daily') filename = "Shandar_Daily_Revenue.pdf";
+
+        const opt = {
+            margin:       0.5,
+            filename:     filename,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2 },
+            jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(element).save();
+    }
+
+    function exportToExcel() {
+        let csvContent = "";
+
+        const headers = Array.from(document.querySelectorAll("#tableHeaders th")).map(th => th.innerText);
+        csvContent += headers.join(",") + "\n";
+
+        const rows = document.querySelectorAll("#salesTableBody tr, #tableFooter tr");
+        rows.forEach(row => {
+            let rowData = [];
+            row.querySelectorAll("td").forEach((cell) => {
+                let cellText = cell.innerText.replace(/रू /g, "").replace(/,/g, "");
+
+                if(cell.hasAttribute("colspan")) {
+                    const spanCount = parseInt(cell.getAttribute("colspan"));
+                    rowData.push(`"${cellText}"`);
+                    for(let i = 1; i < spanCount; i++) {
+                        rowData.push('""');
+                    }
+                } else {
+                    rowData.push(`"${cellText}"`);
+                }
+            });
+            csvContent += rowData.join(",") + "\n";
+        });
+
+        const view = document.getElementById('reportView').value;
+        let filename = "Shandar_Sales_Report.csv";
+        if (view === 'detailed') filename = "Shandar_Detailed_Report.csv";
+        if (view === 'order') filename = "Shandar_Order_Summary.csv";
+        if (view === 'daily') filename = "Shandar_Daily_Revenue.csv";
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+
+        link.setAttribute("href", url);
+        link.setAttribute("download", filename);
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    window.onload = loadSalesData;
+</script>
+
+</body>
+</html>
